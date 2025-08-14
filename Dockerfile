@@ -6,7 +6,7 @@ WORKDIR /app
 # Prisma schema (client will be generated in builder)
 COPY prisma ./prisma
 
-# Install dependencies (cache-friendly)
+# Install dependencies (cache-friendly; includes dev deps so Prisma CLI is available)
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
 RUN \
     if [ -f yarn.lock ]; then yarn --frozen-lockfile; \
@@ -26,11 +26,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# ✅ Generate Prisma client with both binaryTargets (see schema.prisma)
+# ✅ Generate Prisma client (uses prisma/schema.prisma)
 RUN npx prisma generate
 
-# ✅ Build Next.js standalone output
-# Ensure next.config.js includes: output: 'standalone'
+# ✅ Build Next.js standalone output (ensure next.config.js has output: 'standalone')
 RUN \
     if [ -f yarn.lock ]; then SKIP_ENV_VALIDATION=1 yarn build; \
     elif [ -f package-lock.json ]; then SKIP_ENV_VALIDATION=1 npm run build; \
@@ -38,31 +37,32 @@ RUN \
     else echo "Lockfile not found." && exit 1; \
     fi
 
-##### MIGRATOR (runs prisma migrate deploy once)
-FROM --platform=linux/amd64 node:20-alpine AS migrator
-RUN apk add --no-cache openssl libc6-compat
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY prisma ./prisma
-COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
-CMD ["npx","prisma","migrate","deploy"]
 
-##### RUNNER (distroless)
-FROM --platform=linux/amd64 gcr.io/distroless/nodejs20-debian12 AS runner
+##### RUNNER (Alpine so we can run shell + npm)
+FROM --platform=linux/amd64 node:20-alpine AS runner
 WORKDIR /app
 
-# Defaults for local; Railway will override PORT to 8080 at runtime
 ENV NODE_ENV=production
+# Local default; on Railway PORT will be injected (usually 8080)
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 EXPOSE 3000
 
-# standalone server + assets
+# --- App files ---
 COPY --from=builder /app/next.config.js ./
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/package.json ./package.json
+
+# Next.js standalone server (includes server.js and prod node_modules)
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-# Start Next.js standalone server (uses process.env.PORT)
-CMD ["server.js"]
+# Prisma migrations directory is needed at runtime for migrate deploy
+COPY --from=builder /app/prisma ./prisma
+
+# Ensure Prisma CLI is available at runtime (via node_modules/.bin/prisma)
+# If you prefer smaller image, you can copy only prisma-related modules instead.
+COPY --from=builder /app/node_modules ./node_modules
+
+# Run migrations against the live DATABASE_URL, then start Next.js
+CMD ["sh", "-c", "npm run db:migrate && npm run start"]
