@@ -44,9 +44,68 @@ export async function extractPdfText(filePath: string) {
     const data = await pdf(buffer);
     return data.text;
 }
+// === Tunables ===
+const MODEL = "gpt-4o-mini";
+const CONCURRENCY = 3;
+const MAX_RETRIES = 3;
+
+// === Small helpers ===
+function sleep(ms: number) {
+    return new Promise((r) => setTimeout(r, ms));
+}
+
+async function withRetry<T>(fn: () => Promise<T>, retries = MAX_RETRIES): Promise<T> {
+    let attempt = 0;
+    // simple exponential backoff + jitter for 429/5xx
+    while (true) {
+        try {
+            return await fn();
+        } catch (e: any) {
+            const status = e?.status ?? e?.response?.status;
+            const retriable = status === 429 || (typeof status === "number" && status >= 500);
+            if (!retriable || attempt >= retries) throw e;
+            const delay = Math.min(2000 * 2 ** attempt, 10000) + Math.floor(Math.random() * 300);
+            await sleep(delay);
+            attempt++;
+        }
+    }
+}
+
+/** Run async work over `items` with at most `limit` concurrent tasks. */
+async function parallelMap<T, R>(
+    items: T[],
+    limit: number,
+    worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+    const results: R[] = new Array(items.length);
+    let next = 0;
+
+    await Promise.all(
+        Array.from({ length: Math.min(limit, items.length) }, async () => {
+            while (true) {
+                const i = next++;
+                if (i >= items.length) return;
+                try {
+                    results[i] = await worker(items[i]!, i);
+                } catch {
+                    // swallow per-chunk failure; produce empty result for that chunk
+                    // (You can rethrow if you prefer strict failure)
+                    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                    // @ts-expect-error
+                    results[i] = [];
+                }
+            }
+        })
+    );
+
+    return results;
+}
+
+// === Your existing helpers kept as-is ===
+// pointersFromInput, pointerToColumn, toStr, getOpenAI, extractPdfText
 
 /** Split `text` into overlapping chunks for robust LLM context handling. */
-function chunkText(text: string, chunkSize = 9000, overlap = 300) {
+function chunkText(text: string, chunkSize = 12000, overlap = 100) {
     const chunks: string[] = [];
     let start = 0;
     while (start < text.length) {
@@ -64,96 +123,109 @@ export async function validateWithAI(
     verbose = false
 ) {
     const openai = getOpenAI();
-    const chunks = chunkText(pdfText, 9000, 300);
+    const chunks = chunkText(pdfText, 12000, 100);
+
+    // Build canonical pointer list once
     const allowedFields = pointersFromInput(input);
 
-    const mkPrompt = (chunk: string) => `
-Compare the CV form data to this PDF chunk.
-
-- You MUST choose "field" ONLY from the provided JSON Pointer list.
-- If unsure, pick the best matching pointer; DO NOT invent new names.
-- Put values as strings (stringify arrays/objects/numbers).
-
-Form (canonical pointers):
-${JSON.stringify(allowedFields, null, 2)}
-
-Form data:
-${JSON.stringify(input, null, 2)}
-
-PDF chunk:
-${chunk}
-`;
-
+    // Compact schema: refer to fields by index (0..N-1) instead of huge enum of strings
     const schema = {
         name: "MismatchReport",
         schema: {
             type: "object",
             additionalProperties: false,
+            required: ["mismatches"],
             properties: {
                 mismatches: {
                     type: "array",
                     items: {
                         type: "object",
                         additionalProperties: false,
-                        required: ["field", "expected", "actual", "message"],
+                        required: ["field_index", "expected", "actual", "message"],
                         properties: {
-                            field: { type: "string", enum: allowedFields },
+                            field_index: { type: "integer", minimum: 0, maximum: Math.max(0, allowedFields.length - 1) },
                             expected: { type: "string" },
                             actual: { type: "string" },
                             message: { type: "string" }
                         }
                     }
                 }
-            },
-            required: ["mismatches"]
+            }
         },
         strict: true
     } as const;
 
-    const chunkResults: any[] = [];
+    // Keep the prompt short; include allowed_fields once and refer by index.
+    const mkPrompt = (chunk: string) => `
+You are comparing a normalized CV form ("form") to OCR'd PDF text.
 
-    for (let i = 0; i < chunks.length; i++) {
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            temperature: 0,
-            messages: [{ role: "user", content: mkPrompt(chunks[i]!) }],
-            response_format: { type: "json_schema", json_schema: schema }
-        });
-        const content = completion.choices[0]?.message.content ?? '{"mismatches": []}';
-        if (verbose) console.log(`chunk ${i + 1}:`, content);
-        chunkResults.push(JSON.parse(content).mismatches ?? []);
-    }
+Return any mismatches using the JSON schema.
+CRITICAL:
+- Use "field_index" to point into the "allowed_fields" array (0-based).
+- Put ALL values as strings (stringify arrays/objects/numbers).
+- If there's no mismatch in this chunk, return [].
 
-    const all = chunkResults.flat();
-    const byKey = new Map<string, any>();
-    for (const m of all) {
-        const key = `${m.field}|${m.expected}|${m.actual}`;
-        if (!byKey.has(key)) byKey.set(key, m);
-    }
-    const merged = Array.from(byKey.values());
+allowed_fields (canonical JSON Pointers):
+${JSON.stringify(allowedFields)}
 
-    const mergePrompt = `
-Merge these mismatch arrays, remove duplicates, keep messages:
+form (source of truth):
+${JSON.stringify(input)}
 
-${JSON.stringify(merged, null, 2)}
+pdf_chunk:
+${chunk}
 `;
 
-    const merge = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        messages: [{ role: "user", content: mergePrompt }],
-        response_format: { type: "json_schema", json_schema: schema }
+    // Run chunks in parallel with a small pool + retries
+    const chunkResults = await parallelMap(chunks, CONCURRENCY, async (chunk, i) => {
+        const completion = await withRetry(() =>
+            openai.chat.completions.create({
+                model: MODEL,
+                temperature: 0,
+                messages: [{ role: "user", content: mkPrompt(chunk) }],
+                response_format: { type: "json_schema", json_schema: schema }
+            })
+        );
+
+        const raw = completion.choices?.[0]?.message?.content ?? '{"mismatches":[]}';
+        if (verbose) console.log(`chunk ${i + 1}/${chunks.length}: ${raw.slice(0, 200)}...`);
+        let parsed: any;
+        try {
+            parsed = JSON.parse(raw);
+        } catch {
+            parsed = { mismatches: [] };
+        }
+        return Array.isArray(parsed?.mismatches) ? parsed.mismatches : [];
     });
 
-    const final = JSON.parse(merge.choices[0]?.message.content ?? '{"mismatches": []}');
+    // Flatten + map back to pointers; drop bogus indices
+    type Raw = { field_index: number; expected: string; actual: string; message: string };
+    const all: Raw[] = chunkResults.flat();
+    const mapped = all
+        .map((m) => {
+            const ptr = allowedFields[m.field_index];
+            if (typeof ptr !== "string") return null;
+            return {
+                field: pointerToColumn(ptr),
+                json_pointer: ptr,
+                expected: toStr(m.expected),
+                actual: toStr(m.actual),
+                message: m.message
+            };
+        })
+        .filter(Boolean) as Array<{
+            field: string;
+            json_pointer: string;
+            expected: string;
+            actual: string;
+            message: string;
+        }>;
 
-    const normalized = (final.mismatches as any[]).map(m => ({
-        field: pointerToColumn(m.field),
-        json_pointer: m.field,
-        expected: toStr(m.expected),
-        actual: toStr(m.actual),
-        message: m.message
-    }));
+    // De-duplicate locally (no extra LLM call)
+    const byKey = new Map<string, (typeof mapped)[number]>();
+    for (const m of mapped) {
+        const key = `${m.json_pointer}|${m.expected}|${m.actual}`;
+        if (!byKey.has(key)) byKey.set(key, m);
+    }
 
-    return normalized;
+    return Array.from(byKey.values());
 }
