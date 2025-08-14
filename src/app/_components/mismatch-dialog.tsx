@@ -26,7 +26,7 @@ function renderValue(v: unknown) {
 }
 
 export default function MismatchDialog({ mismatches }: { mismatches: Mismatch[] }) {
-  const filterMismatches = mismatches.filter((m) => m.message !== 'Match found.')
+  const filterMismatches = mismatches.filter((m) => m.message !== 'Match')
   const hasIssues = filterMismatches?.length > 0;
 
   return (
@@ -51,10 +51,8 @@ export default function MismatchDialog({ mismatches }: { mismatches: Mismatch[] 
             <div className="space-y-4">
               {filterMismatches.map((m, i) => (
                 <div key={i} className="rounded-lg border p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="font-medium">{m.field}</div>
-                    <Badge variant="outline" className="text-xs">{m.message}</Badge>
-                  </div>
+                  <div className="font-medium mb-2">{m.field}</div>
+                  <Badge variant="outline" className="text-xs mb-2">{m.message}</Badge>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div>
                       <div className="mb-1 text-xs uppercase text-muted-foreground">Expected</div>

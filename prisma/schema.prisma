@@ -1,5 +1,6 @@
 generator client {
-    provider = "prisma-client-js"
+    provider      = "prisma-client-js"
+    binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -33,9 +34,9 @@ model CsvSubmission {
 
     @@index([userId, status, createdAt])
     @@index([fullName])
+    @@map("csv_submission") // <-- table name
 }
 
-// Necessary for Next auth
 model Account {
     id                       String  @id @default(cuid())
     userId                   String
@@ -53,6 +54,7 @@ model Account {
     refresh_token_expires_in Int?
 
     @@unique([provider, providerAccountId])
+    @@map("account")
 }
 
 model Session {
@@ -61,6 +63,8 @@ model Session {
     userId       String
     expires      DateTime
     user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@map("session")
 }
 
 model User {
@@ -72,6 +76,8 @@ model User {
     accounts      Account[]
     sessions      Session[]
     submissions   CsvSubmission[]
+
+    @@map("user")
 }
 
 model VerificationToken {
@@ -80,4 +86,5 @@ model VerificationToken {
     expires    DateTime
 
     @@unique([identifier, token])
+    @@map("verification_token")
 }

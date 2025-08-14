@@ -9,6 +9,8 @@ const config = {
     experimental: {
         serverComponentsExternalPackages: ['pdf-parse'],
     },
+    reactStrictMode: true,
+    output: "standalone",
 };
 
 export default config;
