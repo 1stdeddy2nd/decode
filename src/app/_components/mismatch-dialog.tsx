@@ -52,7 +52,7 @@ export default function MismatchDialog({ mismatches }: { mismatches: Mismatch[] 
               {filterMismatches.map((m, i) => (
                 <div key={i} className="rounded-lg border p-3">
                   <div className="font-medium mb-2">{m.field}</div>
-                  <Badge variant="outline" className="text-xs mb-2">{m.message}</Badge>
+                  <Badge variant="outline" className="text-xs mb-2">Missmatch</Badge>
                   <div className="mb-2">
                     <div className="mb-1 text-xs uppercase text-muted-foreground">Expected</div>
                     {renderValue(m.expected)}
