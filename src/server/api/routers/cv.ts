@@ -58,7 +58,7 @@ async function savePdfToLocalProject(fileName: string, base64: string) {
     }
 
     // ensure uploads dir exists (project-relative)
-    const uploadsDir = path.join(process.cwd(), "public", "uploads", "cvs");
+    const uploadsDir = path.join(process.cwd(), "public", "uploads", "csv");
     await fs.mkdir(uploadsDir, { recursive: true });
 
     // randomize to avoid collisions
@@ -68,7 +68,7 @@ async function savePdfToLocalProject(fileName: string, base64: string) {
 
     await fs.writeFile(absPath, buffer);
 
-    const publicPath = `/uploads/cvs/${safeName}`;
+    const publicPath = `/uploads/csv/${safeName}`;
     return publicPath;
 }
 
@@ -79,7 +79,7 @@ export const cvRouter = createTRPCRouter({
         .query(async ({ ctx, input }) => {
             const { page, pageSize, search, status } = input;
 
-            const where: Prisma.CVSubmissionWhereInput = {
+            const where: Prisma.CsvSubmissionWhereInput = {
                 userId: ctx.session.user.id,
                 ...(status ? { status } : {}),
                 ...(search
@@ -93,7 +93,7 @@ export const cvRouter = createTRPCRouter({
             };
 
             const [rawItems, total] = await Promise.all([
-                ctx.db.cVSubmission.findMany({
+                ctx.db.csvSubmission.findMany({
                     where,
                     orderBy: [
                         { createdAt: "desc" },
@@ -115,7 +115,7 @@ export const cvRouter = createTRPCRouter({
                         mismatches: true
                     },
                 }),
-                ctx.db.cVSubmission.count({ where }),
+                ctx.db.csvSubmission.count({ where }),
             ]);
 
             const items = rawItems.map((it) => ({
@@ -157,7 +157,7 @@ export const cvRouter = createTRPCRouter({
             const status = mismatches.length === 0 ? "PASSED" : "FAILED";
 
             // 4. Save in DB
-            const submission = await ctx.db.cVSubmission.create({
+            const submission = await ctx.db.csvSubmission.create({
                 data: {
                     fullName: input.fullName,
                     email: input.email,
@@ -180,7 +180,7 @@ export const cvRouter = createTRPCRouter({
     delete: protectedProcedure
         .input(z.object({ id: z.string().cuid() }))
         .mutation(async ({ ctx, input }) => {
-            await ctx.db.cVSubmission.delete({
+            await ctx.db.csvSubmission.delete({
                 where: { id: input.id, userId: ctx.session.user.id },
             });
 
