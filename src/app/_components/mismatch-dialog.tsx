@@ -53,15 +53,13 @@ export default function MismatchDialog({ mismatches }: { mismatches: Mismatch[] 
                 <div key={i} className="rounded-lg border p-3">
                   <div className="font-medium mb-2">{m.field}</div>
                   <Badge variant="outline" className="text-xs mb-2">{m.message}</Badge>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div>
-                      <div className="mb-1 text-xs uppercase text-muted-foreground">Expected</div>
-                      {renderValue(m.expected)}
-                    </div>
-                    <div>
-                      <div className="mb-1 text-xs uppercase text-muted-foreground">Actual</div>
-                      {renderValue(m.actual)}
-                    </div>
+                  <div className="mb-2">
+                    <div className="mb-1 text-xs uppercase text-muted-foreground">Expected</div>
+                    {renderValue(m.expected)}
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs uppercase text-muted-foreground">Actual</div>
+                    {renderValue(m.actual)}
                   </div>
                 </div>
               ))}
