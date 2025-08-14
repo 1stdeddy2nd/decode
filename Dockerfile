@@ -30,7 +30,7 @@ COPY . .
 RUN npx prisma generate
 
 # ✅ Build Next.js standalone output
-# Make sure next.config.js has: serverExternalPackages: ['pdf-parse'] and output: 'standalone'
+# Ensure next.config.js includes: output: 'standalone'
 RUN \
     if [ -f yarn.lock ]; then SKIP_ENV_VALIDATION=1 yarn build; \
     elif [ -f package-lock.json ]; then SKIP_ENV_VALIDATION=1 npm run build; \
@@ -50,8 +50,11 @@ CMD ["npx","prisma","migrate","deploy"]
 ##### RUNNER (distroless)
 FROM --platform=linux/amd64 gcr.io/distroless/nodejs20-debian12 AS runner
 WORKDIR /app
+
+# Defaults for local; Railway will override PORT to 8080 at runtime
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 EXPOSE 3000
 
 # standalone server + assets
@@ -61,5 +64,5 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-# Start Next.js standalone server
+# Start Next.js standalone server (uses process.env.PORT)
 CMD ["server.js"]
