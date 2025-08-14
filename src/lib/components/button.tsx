@@ -31,7 +31,7 @@ const Button: React.FC<ButtonProps> = (props) => {
     };
 
     const baseStyles =
-        'font-semibold rounded transition-colors duration-300 border-2 focus:outline-none flex items-center justify-center gap-2 leading-tight';
+        'font-semibold rounded transition-colors duration-300 border-2 focus:outline-none flex items-center justify-center gap-2 leading-tight cursor-pointer';
 
     const styles = React.useMemo(() => {
         switch (variant) {
