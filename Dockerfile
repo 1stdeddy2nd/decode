@@ -1,15 +1,14 @@
 FROM node:20-alpine
 
 WORKDIR /app
-ENV NODE_ENV=production
 
-# OS deps (openssl needed for Prisma)
+# OS deps (openssl needed for Prisma on Alpine)
 RUN apk add --no-cache libc6-compat openssl
 
-# 1) Copy prisma schema before install (needed for postinstall prisma generate)
+# 1) Prisma schema BEFORE install (postinstall -> prisma generate)
 COPY prisma ./prisma
 
-# 2) Install dependencies
+# 2) Install with devDependencies (do NOT set NODE_ENV yet)
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -21,9 +20,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV SKIP_ENV_VALIDATION=1
 RUN npm run build
 
-# 4) Remove dev deps for smaller image
+# 4) Drop dev deps for a smaller runtime and set NODE_ENV for production
 RUN npm prune --omit=dev
+ENV NODE_ENV=production
 
-# 5) Run migrations and start app
+# 5) Run migrations then start
 EXPOSE 3000
 CMD ["sh", "-c", "npm run db:migrate && npm start"]
