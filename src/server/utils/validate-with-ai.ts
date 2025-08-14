@@ -5,16 +5,16 @@ import type { createSchema } from "../api/routers/cv";
 import OpenAI from "openai";
 import pdf from "pdf-parse";
 import { promises as fs } from "node:fs";
+import { env } from "~/env";
 
 // --- Tunables ---
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-const CONCURRENCY = Number(process.env.CV_VALIDATE_CONCURRENCY ?? 5);
+const MODEL = "gpt-4o-mini";
+const CONCURRENCY = 5;
 const MAX_RETRIES = 3;
 
 // --- Helpers ---
 function getOpenAI() {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error("OPENAI_API_KEY is missing");
+    const apiKey = env.OPENAI_API_KEY;
     return new OpenAI({ apiKey });
 }
 

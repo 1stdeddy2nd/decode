@@ -6,11 +6,9 @@ import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
 const config = {
-    experimental: {
-        serverComponentsExternalPackages: ['pdf-parse'],
-    },
     reactStrictMode: true,
     output: "standalone",
+    serverExternalPackages: ['pdf-parse']
 };
 
 export default config;
